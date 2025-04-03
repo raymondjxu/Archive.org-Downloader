@@ -9,6 +9,7 @@ import os
 import sys
 import shutil
 import json
+from decrypt import deobfuscate_file
 
 def display_error(response, message):
 	print(message)
@@ -113,9 +114,24 @@ def download_one_image(session, link, i, directory, book_id, pages):
 		except:
 			time.sleep(1)	# Wait 1 second before retrying
 
-	image = image_name(pages, i, directory)
-	with open(image,"wb") as f:
-		f.write(response.content)
+	print("Obfuscation header:", response.headers.get("X-Obfuscate", "None"))
+
+	if "X-Obfuscate" in response.headers:
+		print(f"[+] Decrypting page {i+1}/{pages}...")
+		obfuscate_header = response.headers["X-Obfuscate"]
+		aes_key = "/" + "/".join(link.split("/")[3:])  # Derive AES key similar to the JS regex
+		print("Derived AES key:", aes_key)
+		temp_file = f"{directory}/temp_{i}.jpg"
+		with open(temp_file, "wb") as f:
+			f.write(response.content)
+		decrypted_file = image_name(pages, i, directory)
+		deobfuscate_file(temp_file, obfuscate_header, aes_key, decrypted_file)
+		os.remove(temp_file)
+	else:
+		print(f"[+] Decryption not necessary for page page {i+1}/{pages}...")
+		image = image_name(pages, i, directory)
+		with open(image,"wb") as f:
+			f.write(response.content)
 
 
 def download(session, n_threads, directory, links, scale, book_id):
@@ -130,6 +146,8 @@ def download(session, n_threads, directory, links, scale, book_id):
 			tasks.append(executor.submit(download_one_image, session=session, link=link, i=i, directory=directory, book_id=book_id, pages=pages))
 		for task in tqdm(futures.as_completed(tasks), total=len(tasks)):
 			pass
+
+		
 	
 	images = [image_name(pages, i, directory) for i in range(len(links))]
 	return images
